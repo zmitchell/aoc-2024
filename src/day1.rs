@@ -1,4 +1,5 @@
 use aoc_runner_derive::{aoc, aoc_generator};
+use std::arch::x86_64::*;
 
 type Error = anyhow::Error;
 
@@ -35,4 +36,34 @@ fn solve_puzzle_day1_naive((left, right): &(Vec<i32>, Vec<i32>)) -> u32 {
             summed_diff += left_num.abs_diff(*right_num);
             summed_diff
         })
+}
+
+/// The maximum number of digits each integer in a vector can have.
+#[derive(PartialEq, Eq)]
+enum DigitConversion {
+    Zero,
+    One,
+    Two,
+    Four,
+    Eight,
+}
+
+struct ShuffleData {}
+
+/// A byte of 0x80 tells the pshufb instruction to put a zero at the corresponding location.
+/// We'll use this as the basis for shuffles and set individual bytes to particular values.
+const ZERO_SHUFFLE: [u8; 16] = [
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+];
+
+fn precompute_shuffle_table() -> Vec<ShuffleData> {
+    let mut shuffles = vec![];
+    for i in (0u16..u16::MAX) {
+        todo!()
+    }
+    shuffles
+}
+
+fn parse_ints(puzzle: &[u8]) -> Result<Vec<i32>, Error> {
+    todo!()
 }
