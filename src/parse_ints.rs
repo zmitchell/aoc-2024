@@ -167,7 +167,7 @@ fn generate_shuffle_array(pat_info: &ExtractedPatternInfo) -> [u8; 16] {
 }
 
 /// A lookup table entry corresponding to a 16 bit pattern.
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct PatternData {
     /// The input array for the `pshufb` instruction
     shuffle_array: [u8; 16],
@@ -224,10 +224,72 @@ fn load_lookup_table(path: &Path) -> Result<Vec<PatternData>, Error> {
     Ok(lookup_table)
 }
 
+#[inline]
+fn load_slice_to_vector(bytes: &[u8]) -> __m128i {
+    unsafe { _mm_loadu_si128(bytes.as_ptr() as *const __m128i) }
+}
+
+#[inline]
+fn bitmask_to_vector(mask: u16) -> __m128i {
+    unsafe { _mm_movm_epi8(mask) }
+}
+
+#[inline]
+fn vector_to_bitmask(mask: __m128i) -> u16 {
+    unsafe { _mm_movemask_epi8(mask) as u16 }
+}
+
+#[inline]
+fn broadcast_to_vector(byte: u8) -> __m128i {
+    unsafe { _mm_set1_epi8(byte as i8) }
+}
+
+/// Stores a 16 byte vector to a slice.
+///
+/// SAFETY: The slice must be at least 16 bytes long.
+#[inline]
+fn vector_to_slice(vector: __m128i, buffer: &mut [u8]) {
+    let ptr = buffer.as_mut_ptr();
+    unsafe {
+        _mm_storeu_epi8(ptr as *mut i8, vector);
+    }
+}
+
+/// Returns a mask of the locations of the digits
+fn detect_digits(input: __m128i) -> __m128i {
+    unsafe {
+        let ascii_zero = _mm_set1_epi8(b'0' as i8);
+        let ascii_nine = _mm_set1_epi8((b'9' + 1) as i8);
+        let less_than_zero = _mm_cmplt_epi8(input, ascii_zero);
+        let less_than_nine = _mm_cmplt_epi8(input, ascii_nine);
+        // The name of this instruction is confusing, it's really "notand".
+        // For arguments (x, y) it computes (~x) & y.
+        _mm_andnot_si128(less_than_zero, less_than_nine)
+    }
+}
+
+#[inline]
+fn shuffle_digits(input: __m128i, pat: &PatternData) -> __m128i {
+    let shuffle_vector = load_slice_to_vector(&pat.shuffle_array);
+    unsafe { _mm_shuffle_epi8(input, shuffle_vector) }
+}
+
+fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u16> {
+    let vector_size = 16; // bytes
+    let n_bytes = bytes.len();
+    let mut cursor = 0;
+    while cursor < n_bytes {
+        let input = load_slice_to_vector(&bytes[cursor..(cursor + vector_size)]);
+        let digit_vector_mask = detect_digits(input);
+        let digit_bitmask = vector_to_bitmask(digit_vector_mask);
+        let pattern_data = lookup_table[digit_bitmask as usize];
+        let shuffled = shuffle_digits(input, &pattern_data);
+    }
+    todo!()
+}
+
 #[cfg(test)]
 mod test {
-    use std::io::Write;
-
     use super::{write_lookup_table, *};
     use proptest::prelude::*;
 
@@ -270,6 +332,27 @@ mod test {
             let expected_digits = compute_conversion_size(m.max(n) as usize);
             let pat_info = extract_pattern_info(pattern);
             prop_assert_eq!(expected_digits as usize, pat_info.consumable_ranges.conversion_size);
+        }
+
+        #[test]
+        fn detects_digits(mask in any::<u16>()) {
+            // Sets the corresponding byte for each set bit in the mask
+            let vector = bitmask_to_vector(mask);
+            let ones = broadcast_to_vector(b'1');
+            // Turn the bytes that are set into '1' chars
+            let digits = unsafe {
+              _mm_and_si128(vector, ones)
+            };
+            // Now we get a mask of the bytes that were digits,
+            // which we'll turn back into a u16 mask to compare
+            // against the one we started with.
+            let detected_vector = detect_digits(digits);
+            let detected_bitmask = unsafe {
+                // I don't know why this returns an i32,
+                // there are only 16 bytes in an __m128i
+                _mm_movemask_epi8(detected_vector) as u16
+            };
+            prop_assert_eq!(mask, detected_bitmask);
         }
     }
 
