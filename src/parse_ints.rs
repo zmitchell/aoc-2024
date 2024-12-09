@@ -1,5 +1,9 @@
 #[allow(unused_imports)]
 use std::arch::x86_64::*;
+use std::{
+    io::{Read, Write},
+    path::Path,
+};
 
 type Error = anyhow::Error;
 
@@ -189,11 +193,42 @@ fn generate_pattern_lookup_table() -> Vec<PatternData> {
     lookup_table
 }
 
+/// Serializes the lookup table as a flat array of bytes and saves it to
+/// the provided path.
+fn write_lookup_table(table: Vec<PatternData>, path: &Path) -> Result<(), Error> {
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    let (ptr, length, capacity) = table.into_raw_parts();
+    let n_bytes = length * size_of::<PatternData>();
+    let raw_bytes: Vec<u8> = unsafe {
+        let ptr = ptr as *mut u8;
+        Vec::from_raw_parts(ptr, n_bytes, capacity)
+    };
+    file.write_all(&raw_bytes)?;
+    Ok(())
+}
+
+/// Loads the lookup table from the provided path.
+fn load_lookup_table(path: &Path) -> Result<Vec<PatternData>, Error> {
+    let mut file = std::fs::OpenOptions::new().read(true).open(&path).unwrap();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    let (ptr, _, capacity) = buffer.into_raw_parts();
+    let lookup_table: Vec<PatternData> = unsafe {
+        let ptr = ptr as *mut PatternData;
+        Vec::from_raw_parts(ptr, 65536, capacity)
+    };
+    Ok(lookup_table)
+}
+
 #[cfg(test)]
 mod test {
     use std::io::Write;
 
-    use super::*;
+    use super::{write_lookup_table, *};
     use proptest::prelude::*;
 
     proptest! {
@@ -283,22 +318,11 @@ mod test {
 
     #[test]
     #[ignore = "don't write it"]
-    fn write_lookup_table() {
+    fn dummy_test_write_lookup_table() {
         let table = generate_pattern_lookup_table();
         let path = std::env::current_dir()
             .unwrap()
             .join("input/2024/day1_part1_lookup_table.dat");
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&path)
-            .unwrap();
-        let (ptr, length, capacity) = table.into_raw_parts();
-        let n_bytes = length * size_of::<PatternData>();
-        let raw_bytes: Vec<u8> = unsafe {
-            let ptr = ptr as *mut u8;
-            Vec::from_raw_parts(ptr, n_bytes, capacity)
-        };
-        file.write_all(&raw_bytes).unwrap();
+        write_lookup_table(table, &path).unwrap();
     }
 }
