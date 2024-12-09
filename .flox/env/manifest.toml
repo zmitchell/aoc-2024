@@ -25,6 +25,8 @@ cargo-nextest.pkg-path = "cargo-nextest"
 cargo-aoc.flake = "github:zmitchell/cargo-aoc/v0.3"
 
 [vars]
+# Allows me to use nightly features without a nightly compiler
+RUSTC_BOOTSTRAP = "1"
 
 [hook]
 
