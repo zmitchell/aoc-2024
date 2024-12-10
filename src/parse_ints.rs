@@ -248,7 +248,8 @@ fn bitmask_to_vector(mask: u16) -> __m128i {
 
 #[inline]
 fn vector_to_bitmask(mask: __m128i) -> u16 {
-    unsafe { _mm_movemask_epi8(mask) as u16 }
+    let reversed_mask = unsafe { _mm_movemask_epi8(mask) as u16 };
+    reversed_mask.reverse_bits()
 }
 
 #[inline]
@@ -508,6 +509,19 @@ mod test {
             .unwrap()
             .join("input/2024/day1_part1_lookup_table.dat");
         write_lookup_table(table, &path).unwrap();
+    }
+
+    #[test]
+    fn round_trips_slice_to_vector() {
+        let slice = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        let expected_vector =
+            unsafe { _mm_setr_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) };
+        let loaded_vector = load_slice_to_vector(&slice);
+        let compared = unsafe { _mm_cmpeq_epi8(expected_vector, loaded_vector) };
+        // 0 = lower lane, 1 = upper lane
+        let lower_64 = unsafe { _mm_extract_epi64(compared, 0) };
+        let upper_64 = unsafe { _mm_extract_epi64(compared, 1) };
+        assert_eq!(128, lower_64.count_ones() + upper_64.count_ones());
     }
 
     #[test]
