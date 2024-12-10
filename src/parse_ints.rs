@@ -3,6 +3,7 @@ use std::arch::x86_64::*;
 use std::{
     io::{Read, Write},
     path::Path,
+    u8,
 };
 
 type Error = anyhow::Error;
@@ -173,6 +174,10 @@ struct PatternData {
     shuffle_array: [u8; 16],
     /// How many trailing bits there are for this pattern
     skip: u8,
+    /// How many numbers were extracted from this pattern
+    n_extracted: u8,
+    /// The conversion size for this pattern
+    conversion_size: u8,
 }
 
 /// Generate a lookup table for shuffles of every 16 bit pattern.
@@ -187,6 +192,8 @@ fn generate_pattern_lookup_table() -> Vec<PatternData> {
             // that we're operating on 256 byte vectors of digits,
             // but we're only operating on 16 byte vectors.
             skip: extracted.incomplete_bits as u8,
+            n_extracted: extracted.consumable_ranges.n_ranges as u8,
+            conversion_size: extracted.consumable_ranges.conversion_size as u8,
         };
         lookup_table.push(pattern_data);
     }
@@ -212,16 +219,21 @@ fn write_lookup_table(table: Vec<PatternData>, path: &Path) -> Result<(), Error>
 }
 
 /// Loads the lookup table from the provided path.
-fn load_lookup_table(path: &Path) -> Result<Vec<PatternData>, Error> {
+fn load_lookup_table_from_disk(path: &Path) -> Result<Vec<PatternData>, Error> {
     let mut file = std::fs::OpenOptions::new().read(true).open(&path).unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
-    let (ptr, _, capacity) = buffer.into_raw_parts();
-    let lookup_table: Vec<PatternData> = unsafe {
+    let lookup_table = cast_to_lookup_table(buffer);
+    Ok(lookup_table)
+}
+
+/// Reinterprets a vector of bytes as a lookup table.
+fn cast_to_lookup_table(bytes: Vec<u8>) -> Vec<PatternData> {
+    let (ptr, _, capacity) = bytes.into_raw_parts();
+    unsafe {
         let ptr = ptr as *mut PatternData;
         Vec::from_raw_parts(ptr, 65536, capacity)
-    };
-    Ok(lookup_table)
+    }
 }
 
 #[inline]
@@ -274,24 +286,113 @@ fn shuffle_digits(input: __m128i, pat: &PatternData) -> __m128i {
     unsafe { _mm_shuffle_epi8(input, shuffle_vector) }
 }
 
-fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u16> {
+fn convert_by_1digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
+    let mut slice = [0; 16];
+    unsafe {
+        let ascii_zero: __m128i = _mm_set1_epi8(b'0' as i8);
+        let converted = _mm_subs_epu8(input, ascii_zero);
+        _mm_storeu_epi8(slice.as_mut_ptr(), converted);
+    }
+    for i in 0..pat.n_extracted {
+        output.push(u32::from(slice[i as usize] as u8));
+    }
+}
+
+fn convert_by_2digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
+    let mut slice: [u16; 8] = [0; 8];
+    unsafe {
+        let ascii_zero = _mm_set1_epi8(b'0' as i8);
+        let single_digits = _mm_subs_epu8(input, ascii_zero);
+        let weights = _mm_setr_epi8(10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1);
+        let two_digits = _mm_maddubs_epi16(single_digits, weights);
+        _mm_storeu_epi16(slice.as_mut_ptr() as *mut i16, two_digits);
+    }
+    for i in 0..pat.n_extracted {
+        output.push(u32::from(slice[i as usize] as u16));
+    }
+}
+
+fn convert_by_4digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
+    let mut slice: [u32; 4] = [0; 4];
+    unsafe {
+        let ascii_zero = _mm_set1_epi8(b'0' as i8);
+        let single_digits = _mm_subs_epu8(input, ascii_zero);
+        let weights = _mm_setr_epi8(10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1);
+        let two_digits = _mm_maddubs_epi16(single_digits, weights);
+        let weights = _mm_setr_epi16(100, 1, 100, 1, 100, 1, 100, 1);
+        let four_digits = _mm_madd_epi16(two_digits, weights);
+        _mm_storeu_epi32(slice.as_mut_ptr() as *mut i32, four_digits);
+    }
+    for i in 0..pat.n_extracted {
+        output.push(slice[i as usize]);
+    }
+}
+
+fn convert_by_8digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
+    let mut slice: [u32; 4] = [0; 4];
+    unsafe {
+        let ascii_zero = _mm_set1_epi8(b'0' as i8);
+        let single_digits = _mm_subs_epu8(input, ascii_zero);
+        let weights = _mm_setr_epi8(10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1);
+        let two_digits = _mm_maddubs_epi16(single_digits, weights);
+        let weights = _mm_setr_epi16(100, 1, 100, 1, 100, 1, 100, 1);
+        let four_digits = _mm_madd_epi16(two_digits, weights);
+        // The above gives us 4-digit numbers packed into 32-bit integers,
+        // but 4-digit numbers by definition can fit into a 16-bit integer,
+        // so we repack those digits into 16-bit integers so we can use the
+        // _mm_maddubs_epi16 instruction again.
+        let four_digits = _mm_packus_epi32(four_digits, four_digits);
+        let weights = _mm_setr_epi16(10000, 1, 10000, 1, 10000, 1, 10000, 1);
+        let eight_digits = _mm_maddubs_epi16(four_digits, weights);
+        _mm_storeu_epi32(slice.as_mut_ptr() as *mut i32, eight_digits);
+    }
+    for i in 0..pat.n_extracted {
+        output.push(slice[i as usize]);
+    }
+}
+
+fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u32> {
+    let mut output = Vec::with_capacity(1024 * 32);
     let vector_size = 16; // bytes
     let n_bytes = bytes.len();
-    let mut cursor = 0;
-    while cursor < n_bytes {
-        let input = load_slice_to_vector(&bytes[cursor..(cursor + vector_size)]);
+    let mut input_cursor = 0;
+    while input_cursor < n_bytes {
+        let input = load_slice_to_vector(&bytes[input_cursor..(input_cursor + vector_size)]);
         let digit_vector_mask = detect_digits(input);
         let digit_bitmask = vector_to_bitmask(digit_vector_mask);
         let pattern_data = lookup_table[digit_bitmask as usize];
+        if pattern_data.n_extracted == 0 {
+            // TODO: handle the end case
+            input_cursor += 16;
+            continue;
+        }
         let shuffled = shuffle_digits(input, &pattern_data);
+        match pattern_data.conversion_size {
+            1 => convert_by_1digit(shuffled, &pattern_data, &mut output),
+            2 => convert_by_2digit(shuffled, &pattern_data, &mut output),
+            4 => convert_by_4digit(shuffled, &pattern_data, &mut output),
+            8 => convert_by_8digit(shuffled, &pattern_data, &mut output),
+            _ => panic!("invalid conversion size: {}", pattern_data.conversion_size),
+        }
     }
-    todo!()
+    output
 }
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use super::{write_lookup_table, *};
     use proptest::prelude::*;
+
+    static LOOKUP_TABLE: LazyLock<Vec<PatternData>> = LazyLock::new(|| {
+        load_lookup_table_from_disk(
+            &std::env::current_dir()
+                .unwrap()
+                .join("input/2024/day1_part1_lookup_table.dat"),
+        )
+        .unwrap()
+    });
 
     proptest! {
         #[test]
@@ -407,5 +508,14 @@ mod test {
             .unwrap()
             .join("input/2024/day1_part1_lookup_table.dat");
         write_lookup_table(table, &path).unwrap();
+    }
+
+    #[test]
+    fn parses_one_digit() {
+        let mut input = [b' '; 16];
+        input[5] = b'1';
+        let nums = parse_ints(&input, &LOOKUP_TABLE);
+        assert_eq!(nums.len(), 1);
+        assert_eq!(nums[0], 1);
     }
 }
