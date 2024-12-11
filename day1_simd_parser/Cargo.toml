@@ -1,0 +1,14 @@
+[package]
+name = "day1_simd_parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parse_ints = { path = "../parse_ints" }
+
+[dev-dependencies]
+criterion.workspace = true
+
+# [[bench]]
+# name = "benchmark"
+# harness = false

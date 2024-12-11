@@ -14,15 +14,15 @@ rust-lib-src = { pkg-path = "rustPlatform.rustLibSrc", pkg-group = "rust-toolcha
 rust-analyzer = { pkg-path = "rust-analyzer", pkg-group = "rust-analyzer" }
 
 # Linkers
-clang = { pkg-path = "clang", systems = ["aarch64-darwin"] }
-gcc = { pkg-path = "gcc", systems = ["aarch64-linux", "x86_64-linux"] }
+gcc = { pkg-path = "gcc" }
 
 # Platform-specific libraries
-libiconv = { pkg-path = "libiconv", systems = ["aarch64-darwin", "x86_64-darwin"] }
 
 # Extra tools
 cargo-nextest.pkg-path = "cargo-nextest"
-cargo-aoc.flake = "github:zmitchell/cargo-aoc/v0.3"
+valgrind.pkg-path = "valgrind"
+hyperfine.pkg-path = "hyperfine"
+cargo-criterion.pkg-path = "cargo-criterion"
 
 [vars]
 # Allows me to use nightly features without a nightly compiler
@@ -33,4 +33,4 @@ RUSTC_BOOTSTRAP = "1"
 [profile]
 
 [options]
-systems = ["aarch64-darwin", "x86_64-darwin", "aarch64-linux", "x86_64-linux"]
+systems = ["x86_64-linux"]

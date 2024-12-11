@@ -1,3 +1,6 @@
+#![feature(vec_into_raw_parts)]
+#![feature(stdarch_x86_avx512)]
+#![feature(iter_array_chunks)]
 #[allow(unused_imports)]
 use std::arch::x86_64::*;
 use std::{

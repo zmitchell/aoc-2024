@@ -1,14 +1,20 @@
-[package]
-name = "aoc-2024"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+  "parse_ints",
+  "day1_naive",
+  "day1_simd_parser",
+]
+default-members = [
+  "day1_naive",
+  "day1_simd_parser"
+]
+resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
 anyhow = "1"
 aoc-runner = "*"
 aoc-runner-derive = "*"
-
-[dev-dependencies]
 proptest = "1"
 proptest-derive = "0.5.0"
 tempfile = "3.14"
+criterion = { version = "0.5", features = ["html_reports"]}
