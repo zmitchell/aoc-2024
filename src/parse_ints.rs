@@ -169,7 +169,7 @@ fn generate_shuffle_array(pat_info: &ExtractedPatternInfo) -> [u8; 16] {
 
 /// A lookup table entry corresponding to a 16 bit pattern.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct PatternData {
+pub struct PatternData {
     /// The input array for the `pshufb` instruction
     shuffle_array: [u8; 16],
     /// How many trailing bits there are for this pattern
@@ -234,7 +234,7 @@ fn load_lookup_table_from_disk(path: &Path) -> Result<Vec<PatternData>, Error> {
 }
 
 /// Reinterprets a vector of bytes as a lookup table.
-fn cast_to_lookup_table(bytes: Vec<u8>) -> Vec<PatternData> {
+pub fn cast_to_lookup_table(bytes: Vec<u8>) -> Vec<PatternData> {
     let (ptr, _, capacity) = bytes.into_raw_parts();
     unsafe {
         let ptr = ptr as *mut PatternData;
@@ -383,7 +383,7 @@ fn convert_by_8digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
     }
 }
 
-fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u32> {
+pub fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u32> {
     let mut output = Vec::with_capacity(1024 * 32);
     let vector_size = 16; // bytes
     let n_bytes = bytes.len();
