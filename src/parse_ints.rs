@@ -168,7 +168,7 @@ fn generate_shuffle_array(pat_info: &ExtractedPatternInfo) -> [u8; 16] {
 }
 
 /// A lookup table entry corresponding to a 16 bit pattern.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct PatternData {
     /// The input array for the `pshufb` instruction
     shuffle_array: [u8; 16],
@@ -185,13 +185,19 @@ fn generate_pattern_lookup_table() -> Vec<PatternData> {
     let mut lookup_table = vec![];
     for i in 0..=u16::MAX {
         let extracted = extract_pattern_info(i);
+        if extracted.consumable_ranges.n_ranges > 16 {
+            panic!(
+                "found {} ranges from pattern {i:016b}",
+                extracted.consumable_ranges.n_ranges
+            );
+        }
         let shuffle = generate_shuffle_array(&extracted);
         let pattern_data = PatternData {
             shuffle_array: shuffle,
             // Safe conversion, more than 256 incomplete bits would mean
             // that we're operating on 256 byte vectors of digits,
             // but we're only operating on 16 byte vectors.
-            skip: extracted.incomplete_bits as u8,
+            skip: 16 - extracted.incomplete_bits as u8,
             n_extracted: extracted.consumable_ranges.n_ranges as u8,
             conversion_size: extracted.consumable_ranges.conversion_size as u8,
         };
@@ -281,6 +287,27 @@ fn detect_digits(input: __m128i) -> __m128i {
     }
 }
 
+#[allow(dead_code)]
+fn print_vec_u8(vector: __m128i, msg: &str) {
+    let mut slice = [0; 16];
+    vector_to_slice(vector, &mut slice);
+    eprintln!("{msg}: {slice:?}");
+}
+
+#[allow(dead_code)]
+fn print_vec_u16(vector: __m128i, msg: &str) {
+    let mut slice = [0; 8];
+    vector_to_slice(vector, &mut slice);
+    eprintln!("{msg}: {slice:?}");
+}
+
+#[allow(dead_code)]
+fn print_vec_u32(vector: __m128i, msg: &str) {
+    let mut slice = [0; 4];
+    vector_to_slice(vector, &mut slice);
+    eprintln!("{msg}: {slice:?}");
+}
+
 #[inline]
 fn shuffle_digits(input: __m128i, pat: &PatternData) -> __m128i {
     let shuffle_vector = load_slice_to_vector(&pat.shuffle_array);
@@ -294,6 +321,8 @@ fn convert_by_1digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
         let converted = _mm_subs_epu8(input, ascii_zero);
         _mm_storeu_epi8(slice.as_mut_ptr(), converted);
     }
+    eprintln!("spans: {}", pat.n_extracted);
+    eprintln!("slice: {slice:?}");
     for i in 0..pat.n_extracted {
         output.push(u32::from(slice[i as usize] as u8));
     }
@@ -309,7 +338,7 @@ fn convert_by_2digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
         _mm_storeu_epi16(slice.as_mut_ptr() as *mut i16, two_digits);
     }
     for i in 0..pat.n_extracted {
-        output.push(u32::from(slice[i as usize] as u16));
+        output.push(u32::from(slice[i as usize]));
     }
 }
 
@@ -332,19 +361,21 @@ fn convert_by_4digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
 fn convert_by_8digit(input: __m128i, pat: &PatternData, output: &mut Vec<u32>) {
     let mut slice: [u32; 4] = [0; 4];
     unsafe {
+        // Constants
         let ascii_zero = _mm_set1_epi8(b'0' as i8);
+        let mul_1_10 = _mm_setr_epi8(10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1);
+        let mul_1_100 = _mm_setr_epi16(100, 1, 100, 1, 100, 1, 100, 1);
+        let mul_1_10000 = _mm_setr_epi16(10000, 1, 10000, 1, 10000, 1, 10000, 1);
+        // Conversions
         let single_digits = _mm_subs_epu8(input, ascii_zero);
-        let weights = _mm_setr_epi8(10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1);
-        let two_digits = _mm_maddubs_epi16(single_digits, weights);
-        let weights = _mm_setr_epi16(100, 1, 100, 1, 100, 1, 100, 1);
-        let four_digits = _mm_madd_epi16(two_digits, weights);
+        let two_digits = _mm_maddubs_epi16(single_digits, mul_1_10);
+        let four_digits = _mm_madd_epi16(two_digits, mul_1_100);
         // The above gives us 4-digit numbers packed into 32-bit integers,
         // but 4-digit numbers by definition can fit into a 16-bit integer,
         // so we repack those digits into 16-bit integers so we can use the
         // _mm_maddubs_epi16 instruction again.
         let four_digits = _mm_packus_epi32(four_digits, four_digits);
-        let weights = _mm_setr_epi16(10000, 1, 10000, 1, 10000, 1, 10000, 1);
-        let eight_digits = _mm_maddubs_epi16(four_digits, weights);
+        let eight_digits = _mm_madd_epi16(four_digits, mul_1_10000);
         _mm_storeu_epi32(slice.as_mut_ptr() as *mut i32, eight_digits);
     }
     for i in 0..pat.n_extracted {
@@ -375,6 +406,7 @@ fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u32> {
             8 => convert_by_8digit(shuffled, &pattern_data, &mut output),
             _ => panic!("invalid conversion size: {}", pattern_data.conversion_size),
         }
+        input_cursor += pattern_data.skip as usize;
     }
     output
 }
@@ -384,6 +416,7 @@ mod test {
     use std::sync::LazyLock;
 
     use super::{write_lookup_table, *};
+    use prop::bits;
     use proptest::prelude::*;
 
     static LOOKUP_TABLE: LazyLock<Vec<PatternData>> = LazyLock::new(|| {
@@ -394,6 +427,36 @@ mod test {
         )
         .unwrap()
     });
+
+    fn shuffle_slice(input: &[u8], lookup_table: &[PatternData]) -> (__m128i, PatternData) {
+        eprintln!("input: {input:?}");
+        let input = load_slice_to_vector(input);
+        let digit_vector_mask = detect_digits(input);
+        let digit_bitmask = vector_to_bitmask(digit_vector_mask);
+        eprintln!("bitmask: {digit_bitmask:016b}");
+        let pattern_data = lookup_table[digit_bitmask as usize];
+        eprintln!("pattern: {pattern_data:?}");
+        let shuffled = shuffle_digits(input, &pattern_data);
+        (shuffled, pattern_data)
+    }
+
+    /// Given an input slice, produce the pattern data for it.
+    fn pattern_data_for_input_slice(input: &[u8; 16], lookup_table: &[PatternData]) -> PatternData {
+        let input = load_slice_to_vector(input);
+        let digit_vector_mask = detect_digits(input);
+        let digit_bitmask = vector_to_bitmask(digit_vector_mask);
+        lookup_table[digit_bitmask as usize]
+    }
+
+    #[test]
+    fn loads_lookup_table_properly() {
+        let lookup_table = generate_pattern_lookup_table();
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path().join("lookup_table.dat");
+        write_lookup_table(lookup_table.clone(), &path).unwrap();
+        let loaded = load_lookup_table_from_disk(&path).unwrap();
+        assert_eq!(lookup_table, loaded);
+    }
 
     proptest! {
         #[test]
@@ -433,7 +496,7 @@ mod test {
             let pattern = pattern_n | pattern_m; // merge them
             let expected_digits = compute_conversion_size(m.max(n) as usize);
             let pat_info = extract_pattern_info(pattern);
-            prop_assert_eq!(expected_digits as usize, pat_info.consumable_ranges.conversion_size);
+            prop_assert_eq!(expected_digits, pat_info.consumable_ranges.conversion_size);
         }
 
         #[test]
@@ -512,6 +575,32 @@ mod test {
     }
 
     #[test]
+    fn parses_one_digit() {
+        let mut input = [b' '; 16];
+        input[5] = b'1';
+        let nums = parse_ints(&input, &LOOKUP_TABLE);
+        assert_eq!(nums.len(), 1);
+        assert_eq!(nums[0], 1);
+    }
+
+    #[test]
+    fn parses_pattern_1() {
+        let input = "__123___________";
+        let nums = parse_ints(input.as_bytes(), &LOOKUP_TABLE);
+        assert_eq!(nums.len(), 1);
+        assert_eq!(nums[0], 123);
+    }
+
+    #[test]
+    fn parses_pattern_2() {
+        let input = "__123__12345____";
+        let nums = parse_ints(input.as_bytes(), &LOOKUP_TABLE);
+        assert_eq!(nums.len(), 2);
+        assert_eq!(nums[0], 123);
+        assert_eq!(nums[1], 12345);
+    }
+
+    #[test]
     fn round_trips_slice_to_vector() {
         let slice = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
         let expected_vector =
@@ -524,12 +613,99 @@ mod test {
         assert_eq!(128, lower_64.count_ones() + upper_64.count_ones());
     }
 
+    // #[test]
+    // fn leading_digit() {
+    //     let mut input = [b' '; 16];
+    //     input[0] = b'1';
+    //     let input_vec = load_slice_to_vector(&input);
+    //     let digit_mask = detect_digits(input_vec);
+    //     // digit mask is correct
+    //     let digit_bitmask = vector_to_bitmask(digit_mask);
+    //     eprintln!("bitmask: {digit_bitmask:016b}");
+    //     assert_eq!(digit_bitmask, 0b1000000000000000);
+    //     let mut digit_mask_slice = [0; 16];
+    //     vector_to_slice(digit_mask, &mut digit_mask_slice);
+    //     assert_eq!(digit_mask_slice[0], 0xFF);
+    //     assert!(digit_mask_slice[1..].iter().all(|b| *b == 0));
+    //     let extracted = extract_pattern_info(1 << 15);
+    //     assert_eq!(extracted.consumable_ranges.n_ranges, 1);
+    //     assert_eq!(extracted.consumable_ranges.conversion_size, 1);
+    //     let shuffle_array = generate_shuffle_array(&extracted);
+    //     assert_eq!(shuffle_array[0], 0);
+    //     assert!(shuffle_array[1..].iter().all(|b| *b == 0x80));
+    //     let pattern_data = LOOKUP_TABLE[digit_bitmask as usize];
+    //     let shuffled = shuffle_digits(input_vec, &pattern_data);
+    //     let mut output = Vec::new();
+    //     convert_by_1digit(shuffled, &pattern_data, &mut output);
+    //     eprintln!("output: {output:?}");
+    //     assert_eq!(output.len(), 1);
+    //     assert_eq!(output[0], 1);
+    // }
+
     #[test]
-    fn parses_one_digit() {
-        let mut input = [b' '; 16];
-        input[5] = b'1';
-        let nums = parse_ints(&input, &LOOKUP_TABLE);
-        assert_eq!(nums.len(), 1);
-        assert_eq!(nums[0], 1);
+    fn converts_1digit_pattern() {
+        // 1_1_1_1_1_1_1_1_
+        let input = [
+            b'1', b' ', b'1', b' ', b'1', b' ', b'1', b' ', b'1', b' ', b'1', b' ', b'1', b' ',
+            b'1', b' ',
+        ];
+        let (shuffled, pat) = shuffle_slice(&input, &LOOKUP_TABLE);
+        let mut output = Vec::new();
+        convert_by_1digit(shuffled, &pat, &mut output);
+        assert_eq!(output, vec![1, 1, 1, 1, 1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn converts_2digit_pattern() {
+        // 11_11_11_11_11__
+        let input = [
+            b'1', b'1', b' ', b'1', b'1', b' ', b'1', b'1', b' ', b'1', b'1', b' ', b'1', b'1',
+            b' ', b' ',
+        ];
+        let (shuffled, pat) = shuffle_slice(&input, &LOOKUP_TABLE);
+        let mut output = Vec::new();
+        convert_by_2digit(shuffled, &pat, &mut output);
+        assert_eq!(output, vec![11, 11, 11, 11, 11]);
+    }
+
+    #[test]
+    fn converts_3digit_pattern() {
+        // 111_111_111_111_
+        let input = [
+            b'1', b'1', b'1', b' ', b'1', b'1', b'1', b' ', b'1', b'1', b'1', b' ', b'1', b'1',
+            b'1', b' ',
+        ];
+        let (shuffled, pat) = shuffle_slice(&input, &LOOKUP_TABLE);
+        let mut output = Vec::new();
+        convert_by_4digit(shuffled, &pat, &mut output);
+        assert_eq!(output, vec![111, 111, 111, 111]);
+    }
+
+    #[test]
+    fn converts_4digit_pattern() {
+        // 1111_1111_1111____
+        let input = [
+            b'1', b'1', b'1', b'1', b' ', b'1', b'1', b'1', b'1', b' ', b'1', b'1', b'1', b'1',
+            b' ', b' ', b' ', b' ',
+        ];
+        let (shuffled, pat) = shuffle_slice(&input, &LOOKUP_TABLE);
+        let mut output = Vec::new();
+        convert_by_4digit(shuffled, &pat, &mut output);
+        assert_eq!(output, vec![1111, 1111, 1111]);
+    }
+
+    #[test]
+    fn converts_8digit_pattern() {
+        // 11111111________
+        let input = [
+            b'1', b'1', b'1', b'1', b'1', b'1', b'1', b'1', b' ', b' ', b' ', b' ', b' ', b' ',
+            b' ', b' ',
+        ];
+        let (shuffled, pat) = shuffle_slice(&input, &LOOKUP_TABLE);
+        let mut shuffled_array = [0; 16];
+        vector_to_slice(shuffled, &mut shuffled_array);
+        let mut output = Vec::new();
+        convert_by_8digit(shuffled, &pat, &mut output);
+        assert_eq!(output, vec![11111111]);
     }
 }

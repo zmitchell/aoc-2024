@@ -17,6 +17,7 @@ dependencies = [
  "aoc-runner-derive",
  "proptest",
  "proptest-derive",
+ "tempfile",
 ]
 
 [[package]]
