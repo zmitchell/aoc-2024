@@ -388,13 +388,12 @@ pub fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u32> {
     let vector_size = 16; // bytes
     let n_bytes = bytes.len();
     let mut input_cursor = 0;
-    while input_cursor < n_bytes {
+    while (input_cursor + 16) < n_bytes {
         let input = load_slice_to_vector(&bytes[input_cursor..(input_cursor + vector_size)]);
         let digit_vector_mask = detect_digits(input);
         let digit_bitmask = vector_to_bitmask(digit_vector_mask);
         let pattern_data = lookup_table[digit_bitmask as usize];
         if pattern_data.n_extracted == 0 {
-            // TODO: handle the end case
             input_cursor += 16;
             continue;
         }
@@ -407,6 +406,24 @@ pub fn parse_ints(bytes: &[u8], lookup_table: &[PatternData]) -> Vec<u32> {
             _ => panic!("invalid conversion size: {}", pattern_data.conversion_size),
         }
         input_cursor += pattern_data.skip as usize;
+    }
+    // Handle any leftover bytes that didn't fit nicely into 16 byte chunks
+    let mut extra = [b' '; 16];
+    let n_leftover_bytes = n_bytes - input_cursor;
+    extra[..n_leftover_bytes].clone_from_slice(&bytes[input_cursor..]);
+    // This is the same as in the loop, minus input_cursor accounting
+    let input = load_slice_to_vector(&extra);
+    let digit_vector_mask = detect_digits(input);
+    let digit_bitmask = vector_to_bitmask(digit_vector_mask);
+    let pattern_data = lookup_table[digit_bitmask as usize];
+    let shuffled = shuffle_digits(input, &pattern_data);
+    match pattern_data.conversion_size {
+        0 => {}
+        1 => convert_by_1digit(shuffled, &pattern_data, &mut output),
+        2 => convert_by_2digit(shuffled, &pattern_data, &mut output),
+        4 => convert_by_4digit(shuffled, &pattern_data, &mut output),
+        8 => convert_by_8digit(shuffled, &pattern_data, &mut output),
+        _ => panic!("invalid conversion size: {}", pattern_data.conversion_size),
     }
     output
 }
@@ -707,5 +724,13 @@ mod test {
         let mut output = Vec::new();
         convert_by_8digit(shuffled, &pat, &mut output);
         assert_eq!(output, vec![11111111]);
+    }
+
+    #[test]
+    fn handles_end_condition() {
+        let input = "____1234________eee";
+        let output = parse_ints(input.as_bytes(), &LOOKUP_TABLE);
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0], 1234);
     }
 }
