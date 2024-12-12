@@ -2,24 +2,14 @@
 #![feature(stdarch_x86_avx512)]
 #![feature(iter_array_chunks)]
 #[allow(unused_imports)]
+#[allow(dead_code)]
 use std::arch::x86_64::*;
 use std::{
     io::{Read, Write},
     path::Path,
-    u8,
 };
 
 type Error = anyhow::Error;
-
-/// The maximum number of digits each integer in a vector can have.
-#[derive(PartialEq, Eq)]
-enum DigitConversion {
-    Zero,
-    One,
-    Two,
-    Four,
-    Eight,
-}
 
 /// A byte of 0x80 tells the pshufb instruction to put a zero at the corresponding location.
 /// We'll use this as the basis for shuffles and set individual bytes to particular values.
@@ -34,13 +24,14 @@ struct DigitRange {
 }
 
 /// Which span size a number of digits falls into.
+#[allow(dead_code)]
 fn compute_conversion_size(digits: usize) -> usize {
     match digits {
         0 => 0,
         1 => 1,
         2 => 2,
         3 | 4 => 4,
-        5 | 6 | 7 | 8 => 8,
+        5..=8 => 8,
         _ => panic!("can't convert integers with more than 8 digits"),
     }
 }
@@ -184,6 +175,7 @@ pub struct PatternData {
 }
 
 /// Generate a lookup table for shuffles of every 16 bit pattern.
+#[allow(dead_code)]
 fn generate_pattern_lookup_table() -> Vec<PatternData> {
     let mut lookup_table = vec![];
     for i in 0..=u16::MAX {
@@ -211,11 +203,13 @@ fn generate_pattern_lookup_table() -> Vec<PatternData> {
 
 /// Serializes the lookup table as a flat array of bytes and saves it to
 /// the provided path.
+#[allow(dead_code)]
 fn write_lookup_table(table: Vec<PatternData>, path: &Path) -> Result<(), Error> {
     let mut file = std::fs::OpenOptions::new()
         .create(true)
+        .truncate(true)
         .write(true)
-        .open(&path)
+        .open(path)
         .unwrap();
     let (ptr, length, capacity) = table.into_raw_parts();
     let n_bytes = length * size_of::<PatternData>();
@@ -228,8 +222,9 @@ fn write_lookup_table(table: Vec<PatternData>, path: &Path) -> Result<(), Error>
 }
 
 /// Loads the lookup table from the provided path.
+#[allow(dead_code)]
 fn load_lookup_table_from_disk(path: &Path) -> Result<Vec<PatternData>, Error> {
-    let mut file = std::fs::OpenOptions::new().read(true).open(&path).unwrap();
+    let mut file = std::fs::OpenOptions::new().read(true).open(path).unwrap();
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
     let lookup_table = cast_to_lookup_table(buffer);
@@ -250,6 +245,7 @@ fn load_slice_to_vector(bytes: &[u8]) -> __m128i {
     unsafe { _mm_loadu_si128(bytes.as_ptr() as *const __m128i) }
 }
 
+#[allow(dead_code)]
 #[inline]
 fn bitmask_to_vector(mask: u16) -> __m128i {
     unsafe { _mm_movm_epi8(mask) }
@@ -261,6 +257,7 @@ fn vector_to_bitmask(mask: __m128i) -> u16 {
     reversed_mask.reverse_bits()
 }
 
+#[allow(dead_code)]
 #[inline]
 fn broadcast_to_vector(byte: u8) -> __m128i {
     unsafe { _mm_set1_epi8(byte as i8) }
@@ -436,7 +433,6 @@ mod test {
     use std::sync::LazyLock;
 
     use super::{write_lookup_table, *};
-    use prop::bits;
     use proptest::prelude::*;
 
     static LOOKUP_TABLE: LazyLock<Vec<PatternData>> = LazyLock::new(|| {
@@ -461,6 +457,7 @@ mod test {
     }
 
     /// Given an input slice, produce the pattern data for it.
+    #[allow(dead_code)]
     fn pattern_data_for_input_slice(input: &[u8; 16], lookup_table: &[PatternData]) -> PatternData {
         let input = load_slice_to_vector(input);
         let digit_vector_mask = detect_digits(input);

@@ -18,5 +18,5 @@ anyhow.workspace = true
 criterion.workspace = true
 
 [[bench]]
-name = "benchmark"
+name = "day1_naive_benchmark"
 harness = false
