@@ -10,6 +10,9 @@
       "cargo-criterion": {
         "pkg-path": "cargo-criterion"
       },
+      "cargo-flamegraph": {
+        "pkg-path": "cargo-flamegraph"
+      },
       "cargo-nextest": {
         "pkg-path": "cargo-nextest"
       },
@@ -259,6 +262,35 @@
       ],
       "outputs": {
         "out": "/nix/store/kdmx1dgmv2zzakgmrflkbairn9ydf8lh-cargo-criterion-1.1.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "cargo-flamegraph",
+      "broken": false,
+      "derivation": "/nix/store/n8qmjzd4nd8pxpaaakai37mvrd88rzs3-cargo-flamegraph-0.6.5.drv",
+      "description": "Easy flamegraphs for Rust projects and everything else, without Perl or pipes <3",
+      "install_id": "cargo-flamegraph",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d0797a04b81caeae77bcff10a9dde78bc17f5661",
+      "name": "cargo-flamegraph-0.6.5",
+      "pname": "cargo-flamegraph",
+      "rev": "d0797a04b81caeae77bcff10a9dde78bc17f5661",
+      "rev_count": 717074,
+      "rev_date": "2024-12-05T09:53:19Z",
+      "scrape_date": "2024-12-07T04:05:05Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.6.5",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/59zf0nvq5ma3sm9m87y43i2rc2z0750n-cargo-flamegraph-0.6.5"
       },
       "system": "x86_64-linux",
       "group": "toplevel",

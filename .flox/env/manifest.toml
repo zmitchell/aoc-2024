@@ -23,6 +23,7 @@ cargo-nextest.pkg-path = "cargo-nextest"
 valgrind.pkg-path = "valgrind"
 hyperfine.pkg-path = "hyperfine"
 cargo-criterion.pkg-path = "cargo-criterion"
+cargo-flamegraph.pkg-path = "cargo-flamegraph"
 
 [vars]
 # Allows me to use nightly features without a nightly compiler
