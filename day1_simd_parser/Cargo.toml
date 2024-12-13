@@ -18,5 +18,5 @@ parse_ints = { path = "../parse_ints" }
 criterion.workspace = true
 
 [[bench]]
-name = "day1_simd_parser_benchmark"
+name = "day1_simd_parser"
 harness = false

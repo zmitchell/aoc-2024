@@ -20,7 +20,7 @@ pub fn parse_input(puzzle: &str) -> Result<(Vec<u32>, Vec<u32>), Error> {
     Ok((left, right))
 }
 
-pub fn solve_puzzle(left: &mut [u32], right: &mut [u32]) -> u32 {
+pub fn solve_puzzle_part1(left: &mut [u32], right: &mut [u32]) -> u32 {
     left.sort_unstable();
     right.sort_unstable();
     left.iter()
@@ -29,4 +29,28 @@ pub fn solve_puzzle(left: &mut [u32], right: &mut [u32]) -> u32 {
             summed_diff += left_num.abs_diff(*right_num);
             summed_diff
         })
+}
+
+pub fn solve_puzzle_part2(left: &[u32], right: &[u32]) -> u32 {
+    let mut sum = 0;
+    let mut left_cursor = 0;
+    let mut right_cursor = 0;
+    let max_left_idx = left.len();
+    let max_right_idx = right.len();
+    let mut left_num = left[left_cursor];
+    while (left_cursor < max_left_idx) && (right_cursor < max_right_idx) {
+        let right_num = right[right_cursor];
+        if left_num < right_num {
+            left_cursor += 1;
+            left_num = left[left_cursor];
+            continue;
+        }
+        if left_num == right_num {
+            sum += left_num;
+            right_cursor += 1;
+            continue;
+        }
+        right_cursor += 1;
+    }
+    sum
 }

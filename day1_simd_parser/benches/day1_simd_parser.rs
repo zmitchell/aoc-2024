@@ -5,10 +5,11 @@ use std::hint::black_box;
 fn criterion_benchmark(c: &mut Criterion) {
     let input = include_bytes!("../../input/day1.txt");
     let (left, right) = parse_input(input);
-    c.bench_function("parse_input_simd_parser", |b| {
+    let mut group = c.benchmark_group("day1_simd_parser");
+    group.bench_function("parse_input_simd_parser", |b| {
         b.iter(|| parse_input(black_box(input)))
     });
-    c.bench_function("solve_puzzle_simd_parser", |b| {
+    group.bench_function("solve_puzzle_simd_parser", |b| {
         b.iter(|| {
             let left = left.clone();
             let right = right.clone();
