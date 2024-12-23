@@ -1,0 +1,22 @@
+[package]
+name = "day2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parse_ints = { path = "../parse_ints" }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[lib]
+name = "day2"
+path = "src/lib.rs"
+
+[[bin]]
+name = "day2"
+path = "src/main.rs"
+
+[[bench]]
+name = "day2"
+harness = false

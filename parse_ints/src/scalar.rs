@@ -84,18 +84,14 @@ fn convert_two_digits(vector: u8x16) -> [u16; 8] {
 
 #[inline]
 fn convert_four_digits(vector: u8x16) -> [u16; 8] {
-    print_vec_u8(vector.into(), "input");
     let output_vec = unsafe {
         // Turns u8x16 into u16x8 in the process
         let two_converted = _mm_maddubs_epi16(vector.into(), TWO_DIGITS.into());
-        print_vec_u16(two_converted, "two");
         // Turns u16x8 into u32x4 in the process
         let four_converted = _mm_madd_epi16(two_converted, FOUR_DIGITS.into());
-        print_vec_u32(four_converted, "four");
         // Turn u32x4 back into u16x8
         _mm_packus_epi32(four_converted, four_converted)
     };
-    print_vec_u16(output_vec, "output");
     let portable = u16x8::from(output_vec);
     portable.to_array()
 }
