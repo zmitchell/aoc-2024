@@ -1,5 +1,5 @@
 #![feature(iter_array_chunks)]
-use parse_ints::{cast_to_lookup_table, parse_ints};
+use parse_ints::simd::{cast_to_lookup_table, parse_ints};
 
 pub fn parse_input(puzzle: &[u8]) -> (Vec<u32>, Vec<u32>) {
     let mut lookup_table = Vec::with_capacity(2 * 1024 * 1024);

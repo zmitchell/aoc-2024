@@ -31,6 +31,7 @@ pub fn solve_puzzle_part1(left: &mut [u32], right: &mut [u32]) -> u32 {
         })
 }
 
+// TODO: might also want to try a min heap for this instead
 pub fn solve_puzzle_part2(left: &[u32], right: &[u32]) -> u32 {
     let mut sum = 0;
     let mut left_cursor = 0;

@@ -3,10 +3,13 @@ members = [
   "parse_ints",
   "day1",
   "day1_simd_parser",
+  "day2",
 ]
 default-members = [
+  "parse_ints",
   "day1",
-  "day1_simd_parser"
+  "day1_simd_parser",
+  "day2",
 ]
 resolver = "2"
 
